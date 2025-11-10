@@ -1,0 +1,32 @@
+{
+    "enabled": false,
+    "camera": {
+        "resolution": [
+            1920,
+            1080
+        ],
+        "framerate": 30,
+        "rotation": 0,
+        "brightness": 50,
+        "contrast": 50
+    },
+    "capture": {
+        "format": "jpg",
+        "quality": 90,
+        "auto_white_balance": true
+    },
+    "network": {
+        "server_url": "http://localhost:8080",
+        "timeout": 30,
+        "retry_attempts": 3
+    },
+    "local_storage": {
+        "enabled": true,
+        "cache_dir": "pi_cache",
+        "max_cache_size_mb": 500
+    },
+    "mock_mode": {
+        "enabled": true,
+        "sample_images_dir": "test_data/sample_images"
+    }
+}

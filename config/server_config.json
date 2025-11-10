@@ -1,0 +1,29 @@
+{
+    "enabled": true,
+    "api": {
+        "host": "0.0.0.0",
+        "port": 8080,
+        "max_connections": 10
+    },
+    "web": {
+        "enabled": true,
+        "host": "0.0.0.0",
+        "port": 8081,
+        "refresh_rate_ms": 2000
+    },
+    "database": {
+        "path": "qc_server.db",
+        "backup_enabled": true,
+        "backup_interval_hours": 24,
+        "backup_dir": "backups"
+    },
+    "storage": {
+        "image_dir": "inspections/images",
+        "thumbnail_dir": "inspections/thumbnails",
+        "max_storage_gb": 10
+    },
+    "processing": {
+        "max_workers": 4,
+        "timeout_seconds": 30
+    }
+}

@@ -1,0 +1,19 @@
+# QC Vision System - Required Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core computer vision
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# Optional - QR code detection
+pyzbar>=0.1.9
+
+# Optional - OCR text recognition
+pytesseract>=0.3.10
+
+# Optional - Report generation
+openpyxl>=3.1.0
+reportlab>=4.0.0
+
+# No other dependencies needed!
+# Pure Python for web interface

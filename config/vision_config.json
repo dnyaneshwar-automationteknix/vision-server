@@ -1,0 +1,32 @@
+{
+    "qr_detection": {
+        "enabled": true,
+        "min_size": 50,
+        "max_detections": 5
+    },
+    "ocr": {
+        "enabled": true,
+        "language": "eng",
+        "psm": 6,
+        "min_confidence": 60
+    },
+    "color_detection": {
+        "enabled": true,
+        "color_space": "HSV",
+        "tolerance": 30,
+        "min_area_pixels": 100
+    },
+    "image_quality": {
+        "blur_threshold": 100,
+        "brightness_min": 50,
+        "brightness_max": 200,
+        "auto_reject_blur": true,
+        "auto_reject_brightness": false
+    },
+    "preprocessing": {
+        "resize_max_width": 1920,
+        "resize_max_height": 1080,
+        "apply_clahe": false,
+        "denoise": false
+    }
+}
