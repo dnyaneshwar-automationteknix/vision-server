@@ -1,40 +1,24 @@
 """
-QC Vision System - Vision Processing Engine
-Core computer vision algorithms for inspection
-Works with both real images and test images
-No hardware dependency - pure image processing
+COMPLETE Vision Engine with ROI Selection & Color Detection
 """
 
 import cv2
 import numpy as np
-from typing import Dict, List, Tuple, Optional, Any
-from pathlib import Path
+from typing import Dict, List, Tuple, Optional
 import time
 
 
 class VisionEngine:
-    """
-    Core vision processing engine
-    Handles: QR, OCR, Color Detection, Image Quality
-    """
+    """Complete vision processing with ROI and color detection"""
     
     def __init__(self, config: Dict = None):
-        """
-        Initialize vision engine with configuration
-        Args:
-            config: Vision configuration dictionary
-        """
         self.config = config or self._get_default_config()
-        
-        # Try to load optional libraries
         self._qr_available = False
         self._ocr_available = False
-        
         self._init_qr_detector()
         self._init_ocr_engine()
     
     def _get_default_config(self) -> Dict:
-        """Default vision configuration"""
         return {
             "qr_detection": {"enabled": True, "min_size": 50},
             "ocr": {"enabled": True, "min_confidence": 60},
@@ -51,466 +35,368 @@ class VisionEngine:
         }
     
     def _init_qr_detector(self):
-        """Initialize QR code detector"""
         try:
             from pyzbar import pyzbar
             self.pyzbar = pyzbar
             self._qr_available = True
-            print("✓ QR detection enabled (pyzbar loaded)")
+            print("✓ QR detection enabled")
         except ImportError:
             print("⚠ QR detection disabled (pip install pyzbar)")
             self.pyzbar = None
     
     def _init_ocr_engine(self):
-        """Initialize OCR engine"""
         try:
             import pytesseract
             self.pytesseract = pytesseract
             self._ocr_available = True
-            print("✓ OCR enabled (pytesseract loaded)")
+            print("✓ OCR enabled")
         except ImportError:
             print("⚠ OCR disabled (pip install pytesseract)")
             self.pytesseract = None
     
-    # ==================== IMAGE LOADING ====================
-    
-    def load_image(self, image_path: str) -> Optional[np.ndarray]:
-        """
-        Load image from file path
-        Returns: BGR numpy array or None
-        """
+    def load_image_from_bytes(self, image_bytes: bytes) -> Optional[np.ndarray]:
+        """Load image from bytes"""
         try:
-            img = cv2.imread(str("image.jpg"))
-            if img is None:
-                print(f"✗ Failed to load image: {image_path}")
-                return None
+            arr = np.frombuffer(image_bytes, dtype=np.uint8)
+            img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if img is not None and len(img.shape) == 3 and img.shape[2] == 4:
+                img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
             return img
         except Exception as e:
-            print(f"✗ Error loading image: {e}")
+            print(f"Error loading image: {e}")
             return None
-    
-    def load_image_from_bytes(self, b: bytes):
-        arr = np.frombuffer(b, dtype=np.uint8)
-        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-        if img is None:
-            return None
-        # ensure BGR color and no alpha
-        if img.shape[2] == 4:
-            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-        return img
-
     
     def preprocess_image(self, img: np.ndarray) -> np.ndarray:
-        """Apply preprocessing based on config"""
+        """Resize if too large"""
         if img is None:
             return None
-        
-        # Resize if too large
         max_w = self.config['preprocessing']['resize_max_width']
         max_h = self.config['preprocessing']['resize_max_height']
-        
         h, w = img.shape[:2]
         if w > max_w or h > max_h:
             scale = min(max_w/w, max_h/h)
-            new_w = int(w * scale)
-            new_h = int(h * scale)
+            new_w, new_h = int(w * scale), int(h * scale)
             img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
-        
         return img
     
     # ==================== QR CODE DETECTION ====================
     
-    def detect_qr_codes(self, img: np.ndarray):
+    def detect_qr_codes(self, img: np.ndarray, roi: Dict = None) -> List[Dict]:
         """
-        Return list of detected qrcodes:
-        [
-            {
-                'data': 'QR TEXT',
-                'type': 'QR',
-                'bbox': [x1,y1,x2,y2,x3,y3,x4,y4],
-                'bbox_norm': [cx_norm, cy_norm, w_norm, h_norm],
-                'confidence': 0.9
-            }, ...
-        ]
+        Detect QR codes with bounding boxes
+        Args:
+            img: Input image
+            roi: Optional ROI {type, coords} for detection area
+        Returns: List of {data, type, bbox_norm, bbox_pixels}
         """
+        if img is None or not hasattr(img, "shape"):
+            return []
+        
+        # Apply ROI if provided
+        if roi:
+            img = self._extract_roi(img, roi)
+            if img is None:
+                return []
+        
         results = []
         h, w = img.shape[:2]
-
-        # 1) Try OpenCV QRCodeDetector
-        qr_decoder = cv2.QRCodeDetector()
+        
+        # Try OpenCV QRCodeDetector
+        detector = cv2.QRCodeDetector()
         try:
-            data, points, _ = qr_decoder.detectAndDecode(img)
-            if points is not None and len(data.strip()) > 0:
-                pts = points.reshape(-1, 2)
-                flat = pts.flatten().tolist()
-                # normalized bbox: compute bounding rect
-                x, y, bw, bh = cv2.boundingRect(pts.astype(int))
+            data, points, _ = detector.detectAndDecode(img)
+            if data and points is not None:
+                pts = points.reshape(-1, 2).astype(int)
+                x, y, bw, bh = cv2.boundingRect(pts)
                 results.append({
-                    'data': data,
-                    'type': 'QR',
-                    'bbox': [int(xy) for xy in flat],
-                    'bbox_norm': [ (x + bw/2) / w, (y + bh/2) / h, bw / w, bh / h ],
-                    'confidence': 0.95
+                    "data": data,
+                    "type": "QR",
+                    "bbox_norm": [(x + bw/2)/w, (y + bh/2)/h, bw/w, bh/h],
+                    "bbox_pixels": [x, y, bw, bh]
                 })
-                return results  # often single QR, return quickly
-        except Exception:
-            pass
-
-        # 2) Fallback to pyzbar (if installed)
-        try:
-            from pyzbar.pyzbar import decode as pyz_decode
-            decoded = pyz_decode(img)
-            for d in decoded:
-                pts = d.polygon
-                if len(pts) >= 4:
-                    flat = []
-                    xs = []
-                    ys = []
-                    for p in pts:
-                        flat.extend([p.x, p.y])
-                        xs.append(p.x); ys.append(p.y)
-                    x, y, bw, bh = int(min(xs)), int(min(ys)), int(max(xs)-min(xs)), int(max(ys)-min(ys))
+        except Exception as e:
+            print(f"QR OpenCV error: {e}")
+        
+        # Fallback to pyzbar
+        if not results and self._qr_available:
+            try:
+                decoded = self.pyzbar.decode(img)
+                for qr in decoded:
+                    x, y, bw, bh = qr.rect
                     results.append({
-                        'data': d.data.decode('utf-8', errors='ignore'),
-                        'type': d.type,
-                        'bbox': [int(v) for v in flat],
-                        'bbox_norm': [ (x + bw/2) / w, (y + bh/2) / h, bw / w, bh / h ],
-                        'confidence': getattr(d, 'quality', 0.8)
+                        "data": qr.data.decode("utf-8"),
+                        "type": qr.type,
+                        "bbox_norm": [(x + bw/2)/w, (y + bh/2)/h, bw/w, bh/h],
+                        "bbox_pixels": [x, y, bw, bh]
                     })
-            return results
-        except Exception:
-            # pyzbar not installed or decode failed
-            return results
-    
-    def draw_qr_codes(self, img: np.ndarray, qr_codes: List[Dict]) -> np.ndarray:
-        """Draw QR code bounding boxes on image"""
-        img_copy = img.copy()
+            except Exception as e:
+                print(f"pyzbar error: {e}")
         
-        for qr in qr_codes:
-            # Draw rectangle
-            rect = qr['rect']
-            cv2.rectangle(img_copy, 
-                         (rect['x'], rect['y']),
-                         (rect['x'] + rect['width'], rect['y'] + rect['height']),
-                         (0, 255, 0), 2)
-            
-            # Draw label
-            label = f"QR: {qr['data'][:20]}"
-            cv2.putText(img_copy, label,
-                       (rect['x'], rect['y'] - 10),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-        
-        return img_copy
+        return results
     
     # ==================== OCR TEXT RECOGNITION ====================
     
-    def recognize_text(self, img: np.ndarray, roi: Dict = None) -> List[Dict]:
+    def extract_text_simple(self, img: np.ndarray, roi: Dict = None) -> str:
         """
-        Recognize text in image or ROI
+        Extract text from image or ROI
         Args:
             img: Input image
-            roi: Optional region of interest {x, y, width, height}
-        Returns: List of {text, confidence, box}
+            roi: Optional ROI for text extraction
         """
-        if not self._ocr_available or not self.config['ocr']['enabled']:
-            return []
-        
-        try:
-            # Extract ROI if specified
-            if roi:
-                x, y, w, h = roi['x'], roi['y'], roi['width'], roi['height']
-                img = img[y:y+h, x:x+w]
-            
-            # Convert to grayscale
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            
-            # Apply preprocessing for better OCR
-            gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
-            
-            # Perform OCR
-            data = self.pytesseract.image_to_data(gray, output_type=self.pytesseract.Output.DICT)
-            
-            results = []
-            min_conf = self.config['ocr']['min_confidence']
-            
-            for i in range(len(data['text'])):
-                text = data['text'][i].strip()
-                conf = int(data['conf'][i])
-                
-                if text and conf >= min_conf:
-                    results.append({
-                        'text': text,
-                        'confidence': conf,
-                        'box': {
-                            'x': data['left'][i],
-                            'y': data['top'][i],
-                            'width': data['width'][i],
-                            'height': data['height'][i]
-                        }
-                    })
-            
-            return results
-        
-        except Exception as e:
-            print(f"✗ OCR error: {e}")
-            return []
-    
-    def extract_text_simple(self, img: np.ndarray) -> str:
-        """Simple text extraction (single string result)"""
         if not self._ocr_available:
             return ""
         
         try:
+            # Apply ROI if provided
+            if roi:
+                img = self._extract_roi(img, roi)
+                if img is None:
+                    return ""
+            
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            # Enhance contrast
+            gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
             text = self.pytesseract.image_to_string(gray).strip()
             return text
         except Exception as e:
-            print(f"✗ OCR error: {e}")
+            print(f"OCR error: {e}")
             return ""
     
     # ==================== COLOR DETECTION ====================
     
-    def detect_color(self, img: np.ndarray, color_ranges: Dict, 
-                    roi: Dict = None) -> Dict:
+    def detect_color_in_roi(self, img: np.ndarray, roi: Dict, 
+                           color_name: str = "auto") -> Dict:
         """
-        Detect specific colors in image
+        Detect color in selected ROI
         Args:
             img: Input image
-            color_ranges: {color_name: [h_min, h_max, s_min, s_max, v_min, v_max]}
-            roi: Optional region of interest
-        Returns: {color_name: {percentage, area, detected}}
+            roi: ROI definition {type, coords}
+            color_name: Target color or 'auto' for dominant
+        Returns: Color analysis results
         """
-        if not self.config['color_detection']['enabled']:
-            return {}
+        if img is None or not roi:
+            return {"error": "Invalid input"}
+        
+        # Extract ROI
+        roi_img = self._extract_roi(img, roi)
+        if roi_img is None:
+            return {"error": "Failed to extract ROI"}
         
         try:
-            # Extract ROI if specified
-            if roi:
-                x, y, w, h = roi['x'], roi['y'], roi['width'], roi['height']
-                img = img[y:y+h, x:x+w]
-            
             # Convert to HSV
-            hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+            hsv = cv2.cvtColor(roi_img, cv2.COLOR_BGR2HSV)
             
-            total_pixels = img.shape[0] * img.shape[1]
-            results = {}
-            
-            for color_name, ranges in color_ranges.items():
-                # Create mask for color range
-                lower = np.array(ranges[0::2])  # [h_min, s_min, v_min]
-                upper = np.array(ranges[1::2])  # [h_max, s_max, v_max]
+            if color_name == "auto":
+                # Detect dominant color
+                dominant = self._get_dominant_color(roi_img)
+                return {
+                    "mode": "dominant",
+                    "color_rgb": dominant["rgb"],
+                    "color_name": dominant["name"],
+                    "percentage": 100.0,
+                    "roi_info": roi
+                }
+            else:
+                # Detect specific color
+                color_ranges = self._get_color_ranges(color_name)
+                if not color_ranges:
+                    return {"error": f"Unknown color: {color_name}"}
                 
+                lower = np.array(color_ranges["lower"])
+                upper = np.array(color_ranges["upper"])
                 mask = cv2.inRange(hsv, lower, upper)
                 
-                # Calculate area
+                total_pixels = roi_img.shape[0] * roi_img.shape[1]
                 color_pixels = cv2.countNonZero(mask)
                 percentage = (color_pixels / total_pixels) * 100
                 
-                results[color_name] = {
-                    'percentage': round(percentage, 2),
-                    'area': color_pixels,
-                    'detected': percentage > 1.0  # At least 1% presence
+                return {
+                    "mode": "specific",
+                    "color_name": color_name,
+                    "percentage": round(percentage, 2),
+                    "detected": percentage > 5.0,  # At least 5%
+                    "roi_info": roi
                 }
-            
-            return results
         
         except Exception as e:
-            print(f"✗ Color detection error: {e}")
-            return {}
+            print(f"Color detection error: {e}")
+            return {"error": str(e)}
     
-    def detect_dominant_color(self, img: np.ndarray, k: int = 3) -> List[Tuple]:
-        """
-        Detect dominant colors using K-means clustering
-        Returns: List of (color_bgr, percentage) tuples
-        """
+    def _get_dominant_color(self, img: np.ndarray) -> Dict:
+        """Get dominant color using k-means"""
         try:
-            # Reshape image to 2D array of pixels
             pixels = img.reshape(-1, 3).astype(np.float32)
-            
-            # K-means clustering
             criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2)
-            _, labels, centers = cv2.kmeans(pixels, k, None, criteria, 10, 
-                                           cv2.KMEANS_RANDOM_CENTERS)
+            _, _, centers = cv2.kmeans(pixels, 1, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
             
-            # Calculate percentages
-            unique, counts = np.unique(labels, return_counts=True)
-            percentages = (counts / len(labels)) * 100
+            dominant_bgr = centers[0].astype(int)
+            dominant_rgb = (int(dominant_bgr[2]), int(dominant_bgr[1]), int(dominant_bgr[0]))
             
-            # Sort by percentage
-            dominant_colors = sorted(zip(centers, percentages), 
-                                   key=lambda x: x[1], reverse=True)
+            # Classify color
+            color_name = self._classify_color(dominant_rgb)
             
-            return [(tuple(map(int, color)), round(pct, 2)) 
-                   for color, pct in dominant_colors]
+            return {
+                "rgb": dominant_rgb,
+                "bgr": tuple(dominant_bgr),
+                "name": color_name
+            }
+        except Exception as e:
+            print(f"Dominant color error: {e}")
+            return {"rgb": (0, 0, 0), "name": "unknown"}
+    
+    def _classify_color(self, rgb: Tuple[int, int, int]) -> str:
+        """Classify RGB color into name"""
+        r, g, b = rgb
+        
+        # Simple classification
+        if r > 200 and g < 100 and b < 100:
+            return "red"
+        elif r < 100 and g > 200 and b < 100:
+            return "green"
+        elif r < 100 and g < 100 and b > 200:
+            return "blue"
+        elif r > 200 and g > 200 and b < 100:
+            return "yellow"
+        elif r > 200 and g < 150 and b > 200:
+            return "magenta"
+        elif r < 100 and g > 200 and b > 200:
+            return "cyan"
+        elif r > 200 and g > 200 and b > 200:
+            return "white"
+        elif r < 50 and g < 50 and b < 50:
+            return "black"
+        else:
+            return "mixed"
+    
+    def _get_color_ranges(self, color_name: str) -> Optional[Dict]:
+        """Get HSV ranges for color detection"""
+        ranges = {
+            "red": {"lower": [0, 100, 100], "upper": [10, 255, 255]},
+            "green": {"lower": [40, 100, 100], "upper": [80, 255, 255]},
+            "blue": {"lower": [100, 100, 100], "upper": [130, 255, 255]},
+            "yellow": {"lower": [20, 100, 100], "upper": [40, 255, 255]},
+            "cyan": {"lower": [80, 100, 100], "upper": [100, 255, 255]},
+            "magenta": {"lower": [140, 100, 100], "upper": [170, 255, 255]},
+            "white": {"lower": [0, 0, 200], "upper": [180, 30, 255]},
+            "black": {"lower": [0, 0, 0], "upper": [180, 255, 30]}
+        }
+        return ranges.get(color_name.lower())
+    
+    # ==================== ROI EXTRACTION ====================
+    
+    def _extract_roi(self, img: np.ndarray, roi: Dict) -> Optional[np.ndarray]:
+        """
+        Extract ROI from image
+        Args:
+            img: Input image
+            roi: {type: "rect"|"circle"|"polygon", coords: [...]}
+        """
+        if img is None or not roi:
+            return None
+        
+        try:
+            h, w = img.shape[:2]
+            roi_type = roi.get("type", "rect")
+            coords = roi.get("coords", [])
+            
+            if roi_type == "rect" and len(coords) == 4:
+                # Rectangle: [x, y, width, height] (normalized 0-1)
+                x1 = int(coords[0] * w)
+                y1 = int(coords[1] * h)
+                x2 = int((coords[0] + coords[2]) * w)
+                y2 = int((coords[1] + coords[3]) * h)
+                return img[y1:y2, x1:x2]
+            
+            elif roi_type == "circle" and len(coords) == 3:
+                # Circle: [cx, cy, radius] (normalized)
+                cx = int(coords[0] * w)
+                cy = int(coords[1] * h)
+                radius = int(coords[2] * min(w, h))
+                
+                mask = np.zeros((h, w), dtype=np.uint8)
+                cv2.circle(mask, (cx, cy), radius, 255, -1)
+                result = cv2.bitwise_and(img, img, mask=mask)
+                
+                # Crop to circle bounds
+                x1 = max(0, cx - radius)
+                y1 = max(0, cy - radius)
+                x2 = min(w, cx + radius)
+                y2 = min(h, cy + radius)
+                return result[y1:y2, x1:x2]
+            
+            elif roi_type == "polygon" and len(coords) >= 6:
+                # Polygon: [x1, y1, x2, y2, x3, y3, ...]
+                points = []
+                for i in range(0, len(coords), 2):
+                    px = int(coords[i] * w)
+                    py = int(coords[i+1] * h)
+                    points.append([px, py])
+                
+                points = np.array([points], dtype=np.int32)
+                mask = np.zeros((h, w), dtype=np.uint8)
+                cv2.fillPoly(mask, points, 255)
+                result = cv2.bitwise_and(img, img, mask=mask)
+                
+                # Crop to bounding box
+                x, y, bw, bh = cv2.boundingRect(points)
+                return result[y:y+bh, x:x+bw]
+            
+            else:
+                # No ROI or invalid - return full image
+                return img
         
         except Exception as e:
-            print(f"✗ Dominant color error: {e}")
-            return []
+            print(f"ROI extraction error: {e}")
+            return img
     
-    # ==================== IMAGE QUALITY CHECKS ====================
+    # ==================== IMAGE QUALITY ====================
     
     def check_blur(self, img: np.ndarray) -> Dict:
-        """
-        Check image blur using Laplacian variance
-        Returns: {blur_score, is_blurry, threshold}
-        """
+        """Check image blur"""
         try:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-            
             threshold = self.config['image_quality']['blur_threshold']
-            is_blurry = laplacian_var < threshold
-            
             return {
                 'blur_score': round(laplacian_var, 2),
-                'is_blurry': is_blurry,
+                'is_blurry': laplacian_var < threshold,
                 'threshold': threshold,
-                'status': 'FAIL' if is_blurry else 'PASS'
+                'status': 'FAIL' if laplacian_var < threshold else 'PASS'
             }
-        
         except Exception as e:
-            print(f"✗ Blur check error: {e}")
+            print(f"Blur check error: {e}")
             return {'blur_score': 0, 'is_blurry': True, 'status': 'ERROR'}
     
     def check_brightness(self, img: np.ndarray) -> Dict:
-        """
-        Check image brightness
-        Returns: {brightness, is_acceptable, min, max}
-        """
+        """Check image brightness"""
         try:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             brightness = np.mean(gray)
-            
-            min_bright = self.config['image_quality']['brightness_min']
-            max_bright = self.config['image_quality']['brightness_max']
-            
-            is_acceptable = min_bright <= brightness <= max_bright
-            
+            min_b = self.config['image_quality']['brightness_min']
+            max_b = self.config['image_quality']['brightness_max']
+            is_ok = min_b <= brightness <= max_b
             return {
                 'brightness': round(brightness, 2),
-                'is_acceptable': is_acceptable,
-                'min_threshold': min_bright,
-                'max_threshold': max_bright,
-                'status': 'PASS' if is_acceptable else 'FAIL'
+                'is_acceptable': is_ok,
+                'min_threshold': min_b,
+                'max_threshold': max_b,
+                'status': 'PASS' if is_ok else 'FAIL'
             }
-        
         except Exception as e:
-            print(f"✗ Brightness check error: {e}")
+            print(f"Brightness check error: {e}")
             return {'brightness': 0, 'is_acceptable': False, 'status': 'ERROR'}
     
     def check_image_quality(self, img: np.ndarray) -> Dict:
-        """
-        Complete image quality check
-        Returns: Combined quality metrics
-        """
+        """Complete quality check"""
         blur_result = self.check_blur(img)
         brightness_result = self.check_brightness(img)
-        
-        overall_pass = (blur_result['status'] == 'PASS' and 
-                       brightness_result['status'] == 'PASS')
-        
+        overall_pass = (blur_result['status'] == 'PASS' and brightness_result['status'] == 'PASS')
         return {
             'blur': blur_result,
             'brightness': brightness_result,
             'overall_status': 'PASS' if overall_pass else 'FAIL',
             'acceptable': overall_pass
         }
-    
-    # ==================== COMPLETE INSPECTION ====================
-    
-    def inspect_image(self, img: np.ndarray, product_config: Dict = None) -> Dict:
-        """
-        Perform complete inspection on image
-        Args:
-            img: Input image
-            product_config: Product-specific settings (QR pattern, colors, etc.)
-        Returns: Complete inspection results
-        """
-        start_time = time.time()
-        
-        if img is None:
-            return {'error': 'Invalid image', 'status': 'ERROR'}
-        
-        # Preprocess
-        img = self.preprocess_image(img)
-        
-        results = {
-            'timestamp': time.time(),
-            'image_shape': img.shape,
-            'processing_steps': {}
-        }
-        
-        # Image quality check
-        quality = self.check_image_quality(img)
-        results['processing_steps']['quality'] = quality
-        results['quality_pass'] = quality['acceptable']
-        
-        # QR detection
-        if self.config['qr_detection']['enabled']:
-            qr_codes = self.detect_qr_codes(img)
-            results['processing_steps']['qr'] = {
-                'detected_count': len(qr_codes),
-                'codes': qr_codes
-            }
-            results['qr_data'] = qr_codes[0]['data'] if qr_codes else None
-        
-        # OCR
-        if self.config['ocr']['enabled']:
-            text_results = self.recognize_text(img)
-            combined_text = ' '.join([t['text'] for t in text_results])
-            results['processing_steps']['ocr'] = {
-                'text_blocks': len(text_results),
-                'full_text': combined_text,
-                'details': text_results
-            }
-            results['ocr_text'] = combined_text
-        
-        # Color detection (if product config provided)
-        if product_config and 'color_ranges' in product_config:
-            colors = self.detect_color(img, product_config['color_ranges'])
-            results['processing_steps']['color'] = colors
-            
-            # Check if expected colors detected
-            detected_colors = [c for c, data in colors.items() if data['detected']]
-            results['colors_detected'] = detected_colors
-        
-        # Calculate processing time
-        results['processing_time'] = round(time.time() - start_time, 3)
-        
-        # Overall status
-        results['overall_status'] = self._determine_status(results, product_config)
-        
-        return results
-    
-    def _determine_status(self, results: Dict, product_config: Dict = None) -> str:
-        """Determine overall inspection status"""
-        # Quality must pass
-        if not results.get('quality_pass', False):
-            return 'NOK'
-        
-        # If no product config, just check quality
-        if not product_config:
-            return 'OK'
-        
-        # Check QR if expected
-        if product_config.get('qr_pattern'):
-            if not results.get('qr_data'):
-                return 'NOK'
-        
-        # Check OCR if expected
-        if product_config.get('ocr_expected'):
-            ocr_text = results.get('ocr_text', '')
-            if product_config['ocr_expected'] not in ocr_text:
-                return 'NOK'
-        
-        # Check colors if expected
-        if product_config.get('expected_colors'):
-            detected = results.get('colors_detected', [])
-            for expected_color in product_config['expected_colors']:
-                if expected_color not in detected:
-                    return 'NOK'
-        
-        return 'OK'
     
     # ==================== UTILITY ====================
     
@@ -520,57 +406,12 @@ class VisionEngine:
             cv2.imwrite(str(output_path), img)
             return True
         except Exception as e:
-            print(f"✗ Error saving image: {e}")
+            print(f"Save error: {e}")
             return False
-    
-    def create_thumbnail(self, img: np.ndarray, max_size: int = 200) -> np.ndarray:
-        """Create thumbnail of image"""
-        h, w = img.shape[:2]
-        scale = min(max_size/w, max_size/h)
-        new_w = int(w * scale)
-        new_h = int(h * scale)
-        return cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
 
-# ==================== TEST/DEMO ====================
-
+# ==================== TEST ====================
 if __name__ == "__main__":
-    print("=" * 60)
-    print("Vision Engine - Testing Module")
-    print("=" * 60)
-    
-    # Initialize vision engine
+    print("Vision Engine - Complete Test")
     vision = VisionEngine()
-    img = vision.load_image("image.jpg")
-    print("✓ Loaded test image 'image.jpg'")
-    print(f"   Image shape: {img.shape}")
-    # Test with a solid color image (no real image needed)
-    print("\n📸 Creating test image...")
-    test_img = np.zeros((480, 640, 3), dtype=np.uint8)
-    test_img[:, :] = (100, 150, 200)  # BGR color
-    
-    # Quality checks
-    print("\n🔍 Running quality checks...")
-    quality = vision.check_image_quality(test_img)
-    print(f"   Blur: {quality['blur']['blur_score']} - {quality['blur']['status']}")
-    print(f"   Brightness: {quality['brightness']['brightness']} - {quality['brightness']['status']}")
-    print(f"   Overall: {quality['overall_status']}")
-    
-    # Dominant color
-    print("\n🎨 Detecting dominant colors...")
-    colors = vision.detect_dominant_color(test_img, k=3)
-    for i, (color, pct) in enumerate(colors):
-        print(f"   Color {i+1}: BGR{color} - {pct}%")
-    
-    # Complete inspection
-    print("\n✅ Running complete inspection...")
-    result = vision.inspect_image(test_img)
-    print(f"   Status: {result['overall_status']}")
-    print(f"   Processing time: {result['processing_time']}s")
-    print(f"   Quality pass: {result['quality_pass']}")
-    
-    print("\n✓ Vision engine test complete!")
-    print("\nTo test with real images:")
-
-    print("   img = vision.load_image('path/to/image.jpg')")
-    print("   result = vision.inspect_image(img)")
+    print("✓ Initialized")

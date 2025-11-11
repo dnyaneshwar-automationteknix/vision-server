@@ -35,7 +35,7 @@ class SystemHandler:
         
         # Initialize database
         print("💾 Initializing database...")
-        self.db = QCDatabase("test_qc.db")
+        self.db = QCDatabase("data/qc_production.db")
         
         # Initialize vision engine
         print("🔍 Initializing vision engine...")
@@ -70,12 +70,13 @@ class SystemHandler:
             'current_inspection': self.dashboard.current_inspection
         }
     
-    def process_capture(self, image_base64: str, mode: str) -> dict:
+    def process_capture(self, image_base64: str, mode: str, roi: dict = None) -> dict:
         """
-        Process captured image
+        Process captured image with ROI support
         Args:
             image_base64: Base64 encoded image
-            mode: 'capture', 'qr', or 'ocr'
+            mode: 'capture', 'qr', 'ocr', or 'color'
+            roi: Optional ROI definition {type, coords}
         """
         try:
             # Decode image
@@ -88,23 +89,38 @@ class SystemHandler:
             result = {}
             
             if mode == 'qr':
-                qr_codes = self.vision.detect_qr_codes(img)
-                # ensure we return bbox_norm and/or pixel coords
+                # QR detection with ROI
+                qr_codes = self.vision.detect_qr_codes(img, roi)
                 result = {
                     'mode': 'qr',
                     'qr_codes': qr_codes,
                     'count': len(qr_codes)
                 }
-                # log to dashboard as you already do...
-
                 
-                # Log to dashboard
+                # Save to database
                 if qr_codes:
+                    timestamp = int(time.time())
+                    filename = f"qr_{timestamp}.jpg"
+                    image_path = Path('data/inspections') / filename
+                    self.vision.save_image(img, str(image_path))
+                    
+                    # Save inspection to database
+                    inspection_id = self.db.add_inspection(
+                        product_id=None,
+                        qr_data=qr_codes[0]['data'],
+                        status='OK',
+                        image_path=str(image_path),
+                        station_id='QR-SCANNER'
+                    )
+                    
+                    result['inspection_id'] = inspection_id
+                    
+                    # Log to dashboard
                     self.dashboard.add_completed_inspection({
-                        'inspection_id': int(time.time()),
+                        'inspection_id': inspection_id,
                         'product_code': 'QR-SCAN',
                         'status': 'OK',
-                        'qr_data': qr_codes[0]['data'] if qr_codes else 'N/A',
+                        'qr_data': qr_codes[0]['data'],
                         'qr_success': True
                     })
             

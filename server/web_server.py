@@ -42,10 +42,10 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             self._serve_reports()
         elif path == '/settings':
             self._serve_settings()
-        elif path == '/api/state':
-            self._serve_json(self.dashboard_state or {})
         elif path.startswith('/api/capture'):
             self._handle_capture()
+        elif path == '/api/state':
+            self._serve_json(self.dashboard_state or {})
         else:
             self.send_error(404)
     
@@ -53,15 +53,24 @@ class WebRequestHandler(BaseHTTPRequestHandler):
         """Handle POST requests"""
         parsed = urlparse(self.path)
         path = parsed.path
-        
-        if path == '/api/products/add':
-            self._handle_add_product()
-        elif path == '/api/reports/generate':
-            self._handle_generate_report()
-        elif path.startswith('/api/settings/'):
-            self._handle_settings()
-        else:
-            self.send_error(404)
+
+        try:
+            if path == '/api/capture':
+                self._handle_capture()
+                return
+
+            elif path == '/api/state':
+                self._serve_json(self.dashboard_state or {})
+                return
+
+            else:
+                self.send_error(404)
+                return
+
+        except Exception as e:
+            print(f"POST error: {e}")
+            self.send_error(500, str(e))
+
     
     # ==================== PAGE RENDERING ====================
     
@@ -133,7 +142,7 @@ class WebRequestHandler(BaseHTTPRequestHandler):
                 <div class="card">
                     <div class="card-header">
                         📹 QR Code Scanner
-                        <button class="btn btn-success" onclick="processQR()">🔍 Scan QR</button>
+                        <button class="btn btn-success" onclick="toggleQRScanner()">🔍 Start/Stop Scan</button>
                     </div>
                     <div class="video-container">
                         <video id="qrVideo" autoplay playsinline></video>
@@ -207,12 +216,10 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             function changeMode(mode) {{
                 currentMode = mode;
                 
-                // Hide all modes
                 document.getElementById('liveFeedMode').style.display = 'none';
                 document.getElementById('qrMode').style.display = 'none';
                 document.getElementById('ocrMode').style.display = 'none';
                 
-                // Show selected mode
                 if (mode === 'live') {{
                     document.getElementById('liveFeedMode').style.display = 'block';
                 }} else if (mode === 'qr') {{
@@ -234,15 +241,11 @@ class WebRequestHandler(BaseHTTPRequestHandler):
                 document.getElementById('capturedImage').src = dataURL;
                 document.getElementById('captureStatus').textContent = 'Captured at ' + new Date().toLocaleTimeString();
                 
-                // Send to server for processing
                 try {{
                     const response = await fetch('/api/capture', {{
                         method: 'POST',
                         headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ 
-                            image: dataURL.split(',')[1],
-                            mode: 'capture'
-                        }})
+                        body: JSON.stringify({{ image: dataURL.split(',')[1], mode: 'capture' }})
                     }});
                     const result = await response.json();
                     console.log('Server response:', result);
@@ -251,49 +254,127 @@ class WebRequestHandler(BaseHTTPRequestHandler):
                 }}
             }}
             
-            // Process QR code
-            async function processQR() {{
-                const video = document.getElementById('qrVideo');
-                const canvas = document.createElement('canvas');
+            // --- Continuous QR Scanner ---
+            let qrScanRunning = false;
+            let qrCooldown = false;
+            let lastDetections = [];
+            const scanIntervalMs = 150;
+            let qrCanvas = document.createElement('canvas');
+            
+            const qrOverlay = document.getElementById('qrOverlay');
+            qrOverlay.style.position = 'absolute';
+            qrOverlay.style.top = '0';
+            qrOverlay.style.left = '0';
+            qrOverlay.style.right = '0';
+            qrOverlay.style.bottom = '0';
+            qrOverlay.style.pointerEvents = 'none';
+            
+            const overlayCanvas = document.createElement('canvas');
+            overlayCanvas.style.width = '100%';
+            overlayCanvas.style.height = '100%';
+            overlayCanvas.style.position = 'absolute';
+            overlayCanvas.style.top = '0';
+            overlayCanvas.style.left = '0';
+            overlayCanvas.style.pointerEvents = 'none';
+            qrOverlay.appendChild(overlayCanvas);
+            const overlayCtx = overlayCanvas.getContext('2d');
+            
+            let scanLineY = 0;
+            let scanDirection = 1;
+            
+            function resizeOverlayToVideo(video, canvas) {{
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
-                canvas.getContext('2d').drawImage(video, 0, 0);
-                
-                const dataURL = canvas.toDataURL('image/jpeg', 0.9);
-                
-                try {{
-                    const response = await fetch('/api/capture', {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ 
-                            image: dataURL.split(',')[1],
-                            mode: 'qr'
-                        }})
-                    }});
-                    const result = await response.json();
-                    
-                    if (result.qr_codes && result.qr_codes.length > 0) {{
-                        let html = '<div class="result-success">';
-                        result.qr_codes.forEach((qr, i) => {{
-                            html += `
-                                <div class="result-item">
-                                    <h3>QR Code ${{i + 1}}</h3>
-                                    <div class="result-data">${{qr.data}}</div>
-                                    <div class="result-meta">Type: ${{qr.type}}</div>
-                                </div>
-                            `;
-                        }});
-                        html += '</div>';
-                        document.getElementById('qrResults').innerHTML = html;
-                    }} else {{
-                        document.getElementById('qrResults').innerHTML = '<div class="result-error">No QR code detected</div>';
-                    }}
-                }} catch (err) {{
-                    document.getElementById('qrResults').innerHTML = '<div class="result-error">Processing failed</div>';
-                }}
             }}
             
-            // Process OCR
+            async function startQRScanner() {{
+                if (qrScanRunning) return;
+                const video = document.getElementById('qrVideo');
+                resizeOverlayToVideo(video, overlayCanvas);
+                qrCanvas.width = Math.max(200, Math.floor(video.videoWidth / 3));
+                qrCanvas.height = Math.max(150, Math.floor(video.videoHeight / 3));
+                qrScanRunning = true;
+                lastDetections = [];
+                
+                async function scanLoop() {{
+                    if (!qrScanRunning) return;
+                    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+                    overlayCtx.strokeStyle = 'rgba(0,200,150,0.9)';
+                    overlayCtx.lineWidth = 4;
+                    const pad = 40;
+                    overlayCtx.strokeRect(pad, pad, overlayCanvas.width - pad * 2, overlayCanvas.height - pad * 2);
+                    scanLineY += scanDirection * 6;
+                    if (scanLineY < pad || scanLineY > overlayCanvas.height - pad) scanDirection *= -1;
+                    overlayCtx.beginPath();
+                    overlayCtx.moveTo(pad, scanLineY);
+                    overlayCtx.lineTo(overlayCanvas.width - pad, scanLineY);
+                    overlayCtx.stroke();
+                    
+                    for (const q of lastDetections) {{
+                        if (!q.bbox_norm) continue;
+                        const [cx, cy, nw, nh] = q.bbox_norm;
+                        const x = (cx - nw / 2) * overlayCanvas.width;
+                        const y = (cy - nh / 2) * overlayCanvas.height;
+                        const w = nw * overlayCanvas.width;
+                        const h = nh * overlayCanvas.height;
+                        overlayCtx.strokeStyle = 'rgba(0,255,0,0.9)';
+                        overlayCtx.lineWidth = 3;
+                        overlayCtx.strokeRect(x, y, w, h);
+                        overlayCtx.fillStyle = 'rgba(0,0,0,0.5)';
+                        overlayCtx.fillRect(x, y - 28, Math.min(300, w), 24);
+                        overlayCtx.fillStyle = 'white';
+                        overlayCtx.font = '16px sans-serif';
+                        overlayCtx.fillText((q.data || '').slice(0, 30), x + 6, y - 10);
+                    }}
+                    
+                    if (!qrCooldown) {{
+                        try {{
+                            const ctx = qrCanvas.getContext('2d');
+                            ctx.drawImage(video, 0, 0, qrCanvas.width, qrCanvas.height);
+                            const dataURL = qrCanvas.toDataURL('image/jpeg', 0.7);
+                            qrCooldown = true;
+                            fetch('/api/capture', {{
+                                method: 'POST',
+                                headers: {{ 'Content-Type': 'application/json' }},
+                                body: JSON.stringify({{ image: dataURL.split(',')[1], mode: 'qr' }})
+                            }}).then(r => r.json()).then(res => {{
+                                qrCooldown = false;
+                                if (res && res.qr_codes && res.qr_codes.length > 0) {{
+                                    lastDetections = res.qr_codes;
+                                    let html = '<div class="result-success">';
+                                    res.qr_codes.forEach((qr, i) => {{
+                                        html += `<div class="result-item"><h3>QR ${'{'}i + 1{'}'}</h3><div class="result-data">${'{'}qr.data{'}'}</div><div class="result-meta">Type: ${'{'}qr.type || 'QR'{'}'}</div></div>`;
+                                    }});
+                                    html += '</div>';
+                                    document.getElementById('qrResults').innerHTML = html;
+                                }}
+                            }}).catch(e => {{
+                                qrCooldown = false;
+                                console.error('QR scan post failed', e);
+                            }});
+                        }} catch (e) {{
+                            qrCooldown = false;
+                            console.error('QR scan error', e);
+                        }}
+                    }}
+                    setTimeout(scanLoop, scanIntervalMs);
+                }}
+                scanLoop();
+            }}
+            
+            function toggleQRScanner() {{
+                if (!qrScanRunning) {{
+                    startQRScanner();
+                    document.getElementById('qrResults').innerHTML = '<div class="result-placeholder">Scanning for QR — hold camera steady.</div>';
+                    return;
+                }}
+                qrScanRunning = false;
+                lastDetections = [];
+                overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+                document.getElementById('qrResults').innerHTML = '<div class="result-placeholder">No QR code detected</div>';
+            }}
+            
+            // OCR Process
             async function processOCR() {{
                 const video = document.getElementById('ocrVideo');
                 const canvas = document.createElement('canvas');
@@ -302,26 +383,15 @@ class WebRequestHandler(BaseHTTPRequestHandler):
                 canvas.getContext('2d').drawImage(video, 0, 0);
                 
                 const dataURL = canvas.toDataURL('image/jpeg', 0.9);
-                
                 try {{
                     const response = await fetch('/api/capture', {{
                         method: 'POST',
                         headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ 
-                            image: dataURL.split(',')[1],
-                            mode: 'ocr'
-                        }})
+                        body: JSON.stringify({{ image: dataURL.split(',')[1], mode: 'ocr' }})
                     }});
                     const result = await response.json();
-                    
                     if (result.ocr_text) {{
-                        document.getElementById('ocrResults').innerHTML = `
-                            <div class="result-success">
-                                <h3>Extracted Text:</h3>
-                                <div class="result-data">${{result.ocr_text}}</div>
-                                <div class="result-meta">Confidence: ${{result.confidence || 'N/A'}}</div>
-                            </div>
-                        `;
+                        document.getElementById('ocrResults').innerHTML = `<div class="result-success"><h3>Extracted Text:</h3><div class="result-data">${'{'}result.ocr_text{'}'}</div><div class="result-meta">Confidence: ${'{'}result.confidence || 'N/A'{'}'}</div></div>`;
                     }} else {{
                         document.getElementById('ocrResults').innerHTML = '<div class="result-error">No text detected</div>';
                     }}
@@ -330,25 +400,17 @@ class WebRequestHandler(BaseHTTPRequestHandler):
                 }}
             }}
             
-            // Initialize on load
-            window.onload = () => {{
-                initCamera();
-            }};
+            window.onload = () => initCamera();
             
-            // Auto-refresh stats every 3 seconds
             setInterval(() => {{
-                fetch('/api/state')
-                    .then(r => r.json())
-                    .then(data => {{
-                        // Update stats without full page reload
-                        if (data.statistics) {{
-                            document.querySelector('.stat-card.ok .stat-value').textContent = data.statistics.ok || 0;
-                            document.querySelector('.stat-card.nok .stat-value').textContent = data.statistics.nok || 0;
-                            document.querySelector('.stat-card.total .stat-value').textContent = data.statistics.total || 0;
-                            document.querySelector('.stat-card.rate .stat-value').textContent = (data.statistics.pass_rate || 0).toFixed(1) + '%';
-                        }}
-                    }})
-                    .catch(err => console.error('Stats update failed:', err));
+                fetch('/api/state').then(r => r.json()).then(data => {{
+                    if (data.statistics) {{
+                        document.querySelector('.stat-card.ok .stat-value').textContent = data.statistics.ok || 0;
+                        document.querySelector('.stat-card.nok .stat-value').textContent = data.statistics.nok || 0;
+                        document.querySelector('.stat-card.total .stat-value').textContent = data.statistics.total || 0;
+                        document.querySelector('.stat-card.rate .stat-value').textContent = (data.statistics.pass_rate || 0).toFixed(1) + '%';
+                    }}
+                }}).catch(err => console.error('Stats update failed:', err));
             }}, 3000);
         </script>
         
@@ -362,119 +424,24 @@ class WebRequestHandler(BaseHTTPRequestHandler):
                 font-weight: 600;
                 cursor: pointer;
             }}
-            
-            .video-container {{
-                position: relative;
-                background: #000;
-                border-radius: 10px;
-                overflow: hidden;
-                min-height: 400px;
-            }}
-            
-            .video-container video {{
-                width: 100%;
-                height: auto;
-                display: block;
-            }}
-            
-            #overlayCanvas {{
-                position: absolute;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                pointer-events: none;
-            }}
-            
-            .result-container {{
-                min-height: 400px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                background: rgba(0, 0, 0, 0.3);
-                border-radius: 10px;
-                padding: 20px;
-            }}
-            
-            #capturedImage {{
-                max-width: 100%;
-                max-height: 400px;
-                border-radius: 8px;
-            }}
-            
-            #captureStatus {{
-                margin-top: 10px;
-                text-align: center;
-                opacity: 0.8;
-            }}
-            
-            .result-placeholder {{
-                text-align: center;
-                opacity: 0.5;
-                font-size: 18px;
-            }}
-            
-            .result-success {{
-                background: rgba(0, 200, 81, 0.2);
-                padding: 20px;
-                border-radius: 10px;
-                border-left: 4px solid #00c851;
-            }}
-            
-            .result-error {{
-                background: rgba(255, 68, 68, 0.2);
-                padding: 20px;
-                border-radius: 10px;
-                border-left: 4px solid #ff4444;
-                text-align: center;
-            }}
-            
-            .result-item {{
-                margin-bottom: 15px;
-                padding-bottom: 15px;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-            }}
-            
-            .result-item:last-child {{
-                border-bottom: none;
-            }}
-            
-            .result-item h3 {{
-                margin-bottom: 10px;
-                font-size: 16px;
-            }}
-            
-            .result-data {{
-                font-size: 18px;
-                font-weight: 600;
-                margin: 10px 0;
-                padding: 10px;
-                background: rgba(255, 255, 255, 0.1);
-                border-radius: 5px;
-                word-break: break-all;
-            }}
-            
-            .result-meta {{
-                font-size: 14px;
-                opacity: 0.8;
-                margin-top: 5px;
-            }}
-            
-            .stat-card.ok {{
-                border-left: 4px solid #00c851;
-            }}
-            
-            .stat-card.nok {{
-                border-left: 4px solid #ff4444;
-            }}
-            
-            .stat-card.total {{
-                border-left: 4px solid #33b5e5;
-            }}
-            
-            .stat-card.rate {{
-                border-left: 4px solid #ffbb33;
-            }}
+            .video-container {{ position: relative; background: #000; border-radius: 10px; overflow: hidden; min-height: 400px; }}
+            .video-container video {{ width: 100%; height: auto; display: block; }}
+            #overlayCanvas, #qrOverlay {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }}
+            .result-container {{ min-height: 400px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.3); border-radius: 10px; padding: 20px; }}
+            #capturedImage {{ max-width: 100%; max-height: 400px; border-radius: 8px; }}
+            #captureStatus {{ margin-top: 10px; text-align: center; opacity: 0.8; }}
+            .result-placeholder {{ text-align: center; opacity: 0.5; font-size: 18px; }}
+            .result-success {{ background: rgba(0,200,81,0.2); padding: 20px; border-radius: 10px; border-left: 4px solid #00c851; }}
+            .result-error {{ background: rgba(255,68,68,0.2); padding: 20px; border-radius: 10px; border-left: 4px solid #ff4444; text-align: center; }}
+            .result-item {{ margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.2); }}
+            .result-item:last-child {{ border-bottom: none; }}
+            .result-item h3 {{ margin-bottom: 10px; font-size: 16px; }}
+            .result-data {{ font-size: 18px; font-weight: 600; margin: 10px 0; padding: 10px; background: rgba(255,255,255,0.1); border-radius: 5px; word-break: break-all; }}
+            .result-meta {{ font-size: 14px; opacity: 0.8; margin-top: 5px; }}
+            .stat-card.ok {{ border-left: 4px solid #00c851; }}
+            .stat-card.nok {{ border-left: 4px solid #ff4444; }}
+            .stat-card.total {{ border-left: 4px solid #33b5e5; }}
+            .stat-card.rate {{ border-left: 4px solid #ffbb33; }}
         </style>
         ''', "Dashboard", "dashboard")
         
