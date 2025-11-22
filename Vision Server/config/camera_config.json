@@ -1,0 +1,42 @@
+{
+    "source": "mock",
+    "device_index": 0,
+    "resolution": {
+        "width": 1280,
+        "height": 720
+    },
+    "framerate": 30,
+    "rotation": 0,
+    "flip_horizontal": false,
+    "flip_vertical": false,
+    "brightness": 128,
+    "contrast": 128,
+    "saturation": 128,
+    "auto_focus": true,
+    "auto_white_balance": true,
+    "available_sources": [
+        {
+            "id": "webcam",
+            "name": "Webcam",
+            "description": "External USB webcam"
+        },
+        {
+            "id": "pc_camera",
+            "name": "PC Camera",
+            "description": "Built-in laptop camera"
+        },
+        {
+            "id": "pi_camera",
+            "name": "Pi Camera",
+            "description": "Raspberry Pi camera module"
+        },
+        {
+            "id": "mock",
+            "name": "Mock Camera",
+            "description": "Test images"
+        }
+    ],
+    "save_images": true,
+    "save_thumbnails": true,
+    "save_annotated": true
+}

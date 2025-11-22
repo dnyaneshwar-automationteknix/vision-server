@@ -1,0 +1,8 @@
+{
+    "mode": "server_only",
+    "debug": true,
+    "log_level": "INFO",
+    "log_file": "logs/qc_system.log",
+    "timezone": "UTC",
+    "language": "en"
+}

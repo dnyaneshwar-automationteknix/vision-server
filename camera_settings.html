@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Settings - QC Vision System</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 32px;
+        }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .card h2 {
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        .form-control, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 14px;
+        }
+        
+        select {
+            cursor: pointer;
+        }
+        
+        .form-control:focus, select:focus {
+            outline: none;
+            border-color: rgba(255, 255, 255, 0.6);
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-success {
+            background: #00c851;
+            color: white;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        
+        .camera-option {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.3s;
+        }
+        
+        .camera-option:hover {
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+        
+        .camera-option.active {
+            border-color: #00c851;
+            background: rgba(0, 200, 81, 0.1);
+        }
+        
+        .camera-option h3 {
+            font-size: 18px;
+            margin-bottom: 5px;
+        }
+        
+        .camera-option p {
+            font-size: 14px;
+            opacity: 0.8;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        
+        .status-connected {
+            background: #00c851;
+            color: white;
+        }
+        
+        .status-disconnected {
+            background: #ff4444;
+            color: white;
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .alert-success {
+            background: rgba(0, 200, 81, 0.2);
+            border: 1px solid #00c851;
+        }
+        
+        .alert-info {
+            background: rgba(51, 181, 229, 0.2);
+            border: 1px solid #33b5e5;
+        }
+        
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+        }
+        
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255, 255, 255, 0.3);
+            transition: 0.4s;
+            border-radius: 24px;
+        }
+        
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: 0.4s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .toggle-slider {
+            background-color: #00c851;
+        }
+        
+        input:checked + .toggle-slider:before {
+            transform: translateX(26px);
+        }
+        
+        .back-btn {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: white;
+            text-decoration: none;
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+        
+        .back-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/dashboard" class="back-btn">← Back to Dashboard</a>
+        
+        <h1>📹 Camera Settings</h1>
+        
+        <div id="alertContainer"></div>
+        
+        <!-- Current Status -->
+        <div class="card">
+            <h2>Current Status</h2>
+            <div id="currentStatus">
+                <p>Loading...</p>
+            </div>
+        </div>
+        
+        <!-- Camera Selection -->
+        <div class="card">
+            <h2>Select Camera Source</h2>
+            <div id="cameraList">
+                <p>Detecting cameras...</p>
+            </div>
+        </div>
+        
+        <!-- Camera Settings -->
+        <div class="card">
+            <h2>Camera Configuration</h2>
+            
+            <div class="form-group">
+                <label class="form-label">Device Index (for USB/PC cameras)</label>
+                <select id="deviceIndex" class="form-control">
+                    <option value="0">0 - Primary Camera</option>
+                    <option value="1">1 - Secondary Camera</option>
+                    <option value="2">2 - Third Camera</option>
+                    <option value="3">3 - Fourth Camera</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">Resolution</label>
+                <select id="resolution" class="form-control">
+                    <option value="640x480">640x480 (VGA)</option>
+                    <option value="1280x720" selected>1280x720 (HD)</option>
+                    <option value="1920x1080">1920x1080 (Full HD)</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">
+                    <span>Auto-Detection</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="autoDetection" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </label>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">
+                    <span>Save Images</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="saveImages" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </label>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">
+                    <span>Save Thumbnails</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="saveThumbnails" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </label>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">
+                    <span>Save Annotated Images</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="saveAnnotated" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </label>
+            </div>
+            
+            <button class="btn btn-success" onclick="saveSettings()">💾 Save Settings</button>
+            <button class="btn btn-primary" onclick="testCamera()">🎥 Test Camera</button>
+        </div>
+        
+        <!-- Test Preview -->
+        <div class="card" id="testPreview" style="display: none;">
+            <h2>Camera Test</h2>
+            <video id="testVideo" autoplay playsinline style="width: 100%; border-radius: 8px;"></video>
+            <button class="btn btn-primary" onclick="stopTest()" style="margin-top: 10px;">Stop Test</button>
+        </div>
+    </div>
+    
+    <script>
+        let currentSource = 'webcam';
+        let availableCameras = [];
+        
+        // Load current settings
+        async function loadSettings() {
+            try {
+                const response = await fetch('/api/camera-info');
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentSource = data.camera.source || 'webcam';
+                    updateCurrentStatus(data.camera);
+                    document.getElementById('deviceIndex').value = data.camera.device_index || 0;
+                    
+                    // Set resolution
+                    const res = data.camera.resolution || {width: 1280, height: 720};
+                    document.getElementById('resolution').value = `${res.width}x${res.height}`;
+                    
+                    // Set toggles
+                    document.getElementById('autoDetection').checked = data.auto_detection || true;
+                    document.getElementById('saveImages').checked = data.save_images !== false;
+                    document.getElementById('saveThumbnails').checked = data.save_thumbnails !== false;
+                    document.getElementById('saveAnnotated').checked = data.save_annotated !== false;
+                }
+            } catch (error) {
+                console.error('Failed to load settings:', error);
+            }
+        }
+        
+        // Update current status display
+        function updateCurrentStatus(camera) {
+            const statusDiv = document.getElementById('currentStatus');
+            const isConnected = camera.is_open || false;
+            
+            statusDiv.innerHTML = `
+                <p><strong>Camera Source:</strong> ${camera.source || 'unknown'}</p>
+                <p><strong>Type:</strong> ${camera.type || 'unknown'}</p>
+                ${camera.device_index !== undefined ? `<p><strong>Device Index:</strong> ${camera.device_index}</p>` : ''}
+                <p><strong>Status:</strong> <span class="status-badge ${isConnected ? 'status-connected' : 'status-disconnected'}">
+                    ${isConnected ? '✓ Connected' : '✗ Disconnected'}
+                </span></p>
+            `;
+        }
+        
+        // Detect available cameras
+        async function detectCameras() {
+            try {
+                const response = await fetch('/api/detect-cameras');
+                const data = await response.json();
+                
+                if (data.success) {
+                    availableCameras = data.cameras || [];
+                    renderCameraList();
+                }
+            } catch (error) {
+                console.error('Failed to detect cameras:', error);
+                renderCameraList([]);
+            }
+        }
+        
+        // Render camera list
+        function renderCameraList() {
+            const listDiv = document.getElementById('cameraList');
+            
+            if (availableCameras.length === 0) {
+                listDiv.innerHTML = '<p>No cameras detected. Mock camera will be used.</p>';
+                return;
+            }
+            
+            listDiv.innerHTML = availableCameras.map(cam => `
+                <div class="camera-option ${cam.id === currentSource ? 'active' : ''}" onclick="selectCamera('${cam.id}', ${cam.device_index})">
+                    <h3>${cam.name}</h3>
+                    <p>${cam.description || cam.type}</p>
+                </div>
+            `).join('');
+        }
+        
+        // Select camera
+        function selectCamera(id, deviceIndex) {
+            currentSource = id;
+            if (deviceIndex !== null && deviceIndex !== undefined) {
+                document.getElementById('deviceIndex').value = deviceIndex;
+            }
+            renderCameraList();
+        }
+        
+        // Save settings
+        async function saveSettings() {
+            const resolution = document.getElementById('resolution').value.split('x');
+            
+            const settings = {
+                source: currentSource,
+                device_index: parseInt(document.getElementById('deviceIndex').value),
+                resolution: {
+                    width: parseInt(resolution[0]),
+                    height: parseInt(resolution[1])
+                },
+                auto_detection: document.getElementById('autoDetection').checked,
+                save_images: document.getElementById('saveImages').checked,
+                save_thumbnails: document.getElementById('saveThumbnails').checked,
+                save_annotated: document.getElementById('saveAnnotated').checked
+            };
+            
+            try {
+                const response = await fetch('/api/save-camera-settings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(settings)
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showAlert('Settings saved successfully! Reloading camera...', 'success');
+                    setTimeout(() => {
+                        loadSettings();
+                    }, 1500);
+                } else {
+                    showAlert('Failed to save settings: ' + (data.error || 'Unknown error'), 'danger');
+                }
+            } catch (error) {
+                showAlert('Error saving settings: ' + error.message, 'danger');
+            }
+        }
+        
+        // Test camera
+        async function testCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        deviceId: currentSource === 'webcam' || currentSource === 'pc_camera' 
+                            ? {exact: parseInt(document.getElementById('deviceIndex').value)} 
+                            : undefined,
+                        width: 1280,
+                        height: 720
+                    }
+                });
+                
+                const video = document.getElementById('testVideo');
+                video.srcObject = stream;
+                document.getElementById('testPreview').style.display = 'block';
+                showAlert('Camera test started!', 'success');
+            } catch (error) {
+                showAlert('Camera test failed: ' + error.message, 'danger');
+            }
+        }
+        
+        // Stop camera test
+        function stopTest() {
+            const video = document.getElementById('testVideo');
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+            }
+            document.getElementById('testPreview').style.display = 'none';
+        }
+        
+        // Show alert
+        function showAlert(message, type) {
+            const alertDiv = document.getElementById('alertContainer');
+            alertDiv.innerHTML = `
+                <div class="alert alert-${type}">
+                    ${message}
+                </div>
+            `;
+            
+            setTimeout(() => {
+                alertDiv.innerHTML = '';
+            }, 5000);
+        }
+        
+        // Initialize
+        window.onload = () => {
+            loadSettings();
+            detectCameras();
+        };
+    </script>
+</body>
+</html>

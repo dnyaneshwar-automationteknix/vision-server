@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Color Detection - QC Vision</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }
+        
+        .card-header {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .video-container {
+            position: relative;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            min-height: 500px;
+        }
+        
+        #liveVideo {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        
+        #overlayCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+        
+        .toolbar {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary { background: #667eea; color: white; }
+        .btn-success { background: #00c851; color: white; }
+        .btn-danger { background: #ff4444; color: white; }
+        .btn-warning { background: #ffbb33; color: white; }
+        .btn-info { background: #33b5e5; color: white; }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        
+        .btn.active {
+            background: #fff;
+            color: #667eea;
+            box-shadow: 0 0 0 3px #667eea;
+        }
+        
+        select, input {
+            padding: 8px;
+            border-radius: 6px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 13px;
+        }
+        
+        select option {
+            background: #667eea;
+            color: white;
+        }
+        
+        .results {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        
+        .result-item {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+        
+        .result-item h3 {
+            font-size: 15px;
+            margin-bottom: 8px;
+            color: #00c851;
+        }
+        
+        .result-data {
+            font-size: 13px;
+            padding: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 5px;
+            margin: 5px 0;
+        }
+        
+        .status-bar {
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            font-size: 13px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 10px;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .scanning {
+            animation: pulse 1.5s infinite;
+        }
+        
+        .config-group {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+        }
+        
+        .config-group h4 {
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+        
+        .inline-inputs {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        
+        .auto-detect-section {
+            background: rgba(0, 200, 81, 0.2);
+            padding: 15px;
+            border-radius: 10px;
+            border: 2px solid rgba(0, 200, 81, 0.5);
+            margin-bottom: 15px;
+        }
+        
+        .auto-detect-section h3 {
+            margin-bottom: 10px;
+            color: #00ff88;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎨 Advanced Color Detection System</h1>
+            <p>Auto-Detection • QR/OCR • ROI Selection • Color Analysis</p>
+        </div>
+        
+        <div class="grid">
+            <!-- Camera Panel -->
+            <div class="card">
+                <div class="card-header">
+                    📹 Live Camera
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn btn-success" onclick="captureAndAnalyze()">
+                            📸 Capture & Analyze
+                        </button>
+                        <button class="btn btn-info" onclick="startAutoDetection()">
+                            🔄 Auto Detect
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="toolbar">
+                    <button class="btn btn-primary" onclick="startCamera()">📹 Camera</button>
+                    <input type="file" id="fileInput" accept="image/*" onchange="loadImage(event)" style="display:none;">
+                    <button class="btn btn-warning" onclick="document.getElementById('fileInput').click()">📁 Upload</button>
+                    
+                    <span style="color: white; margin-left: 10px;">ROI Tool:</span>
+                    <button class="btn btn-primary" id="btnRect" onclick="selectTool('rectangle')">▭ Rect</button>
+                    <button class="btn btn-primary" id="btnCircle" onclick="selectTool('circle')">⬤ Circle</button>
+                    <button class="btn btn-primary" id="btnLine" onclick="selectTool('line')">─ Line</button>
+                    <button class="btn btn-primary" id="btnPoly" onclick="selectTool('polygon')">⬟ Polygon</button>
+                    <button class="btn btn-primary" id="btnManual" onclick="selectTool('manual')">✏️ Manual</button>
+                    <button class="btn btn-danger" onclick="clearROI()">🗑️ Clear</button>
+                    
+                    <input type="color" id="colorPicker" value="#ff0000" title="Target Color" style="width: 60px; height: 34px;">
+                    <input type="number" id="tolerance" value="30" min="0" max="100" placeholder="Tol" style="width: 60px;">
+                </div>
+                
+                <div class="video-container">
+                    <video id="liveVideo" autoplay playsinline></video>
+                    <canvas id="overlayCanvas"></canvas>
+                </div>
+                
+                <div class="status-bar">
+                    <span id="statusText">Ready</span>
+                    <span id="fpsCounter">FPS: 0</span>
+                    <span id="autoStatus" style="color: #ffbb33;"></span>
+                </div>
+            </div>
+            
+            <!-- Config & Results Panel -->
+            <div style="display: flex; flex-direction: column; gap: 20px;">
+                <!-- Auto Detection Config -->
+                <div class="card">
+                    <div class="auto-detect-section">
+                        <h3>⚡ Auto Detection Settings</h3>
+                        <label>
+                            <input type="checkbox" id="autoQR" checked>
+                            QR/Barcode Detection
+                        </label>
+                        <label>
+                            <input type="checkbox" id="autoOCR" checked>
+                            OCR Text Recognition
+                        </label>
+                        <label>
+                            <input type="checkbox" id="autoColor" checked>
+                            Color Detection
+                        </label>
+                        <label>
+                            Auto Interval (seconds):
+                            <input type="number" id="autoInterval" value="3" min="1" max="10" style="width: 80px;">
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- Results Panel -->
+                <div class="card" style="flex: 1;">
+                    <div class="card-header">
+                        📊 Detection Results
+                        <button class="btn btn-warning" onclick="exportResults()">💾 Export</button>
+                    </div>
+                    
+                    <div class="results" id="resultsPanel">
+                        <p style="text-align: center; opacity: 0.5; padding: 40px;">
+                            No analysis yet. Capture or start auto-detection.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Saved Images Gallery -->
+        <div class="card">
+            <div class="card-header">
+                🖼️ Saved Inspections
+                <button class="btn btn-danger" onclick="clearGallery()">🗑️ Clear All</button>
+            </div>
+            <div id="gallery" style="display: flex; gap: 10px; flex-wrap: wrap; max-height: 200px; overflow-y: auto;">
+                <p style="opacity: 0.5;">No saved images yet</p>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Global state
+        let video, canvas, ctx;
+        let currentTool = 'rectangle';
+        let isDrawing = false;
+        let startX, startY;
+        let roiPoints = [];
+        let currentROI = null;
+        let latestResults = null;
+        let stream = null;
+        let frameCount = 0;
+        let autoDetectInterval = null;
+        let savedInspections = [];
+        
+        // Initialize
+        window.onload = async () => {
+            video = document.getElementById('liveVideo');
+            canvas = document.getElementById('overlayCanvas');
+            ctx = canvas.getContext('2d');
+            
+            await startCamera();
+            setupCanvasEvents();
+            selectTool('rectangle');
+            startFPSCounter();
+        };
+        
+        // Camera control
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                });
+                video.srcObject = stream;
+                
+                video.onloadedmetadata = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    setStatus('Camera ready');
+                };
+            } catch (err) {
+                setStatus('Camera access denied: ' + err.message);
+                alert('Could not access camera. Please check permissions.');
+            }
+        }
+        
+        function loadImage(event) {
+            const file = event.target.files[0];
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+                    setStatus('Image loaded');
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+        
+        // Tool selection
+        function selectTool(tool) {
+            currentTool = tool;
+            clearROI();
+            
+            document.querySelectorAll('.btn-primary').forEach(btn => btn.classList.remove('active'));
+            
+            const btnMap = {
+                'rectangle': 'btnRect',
+                'circle': 'btnCircle',
+                'line': 'btnLine',
+                'polygon': 'btnPoly',
+                'manual': 'btnManual'
+            };
+            
+            document.getElementById(btnMap[tool])?.classList.add('active');
+            setStatus(`Tool: ${tool.charAt(0).toUpperCase() + tool.slice(1)}`);
+        }
+        
+        // Canvas event handlers
+        function setupCanvasEvents() {
+            canvas.addEventListener('mousedown', handleMouseDown);
+            canvas.addEventListener('mousemove', handleMouseMove);
+            canvas.addEventListener('mouseup', handleMouseUp);
+            canvas.addEventListener('dblclick', handleDoubleClick);
+        }
+        
+        function handleMouseDown(e) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            
+            startX = (e.clientX - rect.left) * scaleX;
+            startY = (e.clientY - rect.top) * scaleY;
+            
+            if (currentTool === 'polygon' || currentTool === 'manual') {
+                roiPoints.push({ x: startX, y: startY });
+                redrawROI();
+            } else {
+                isDrawing = true;
+            }
+        }
+        
+        function handleMouseMove(e) {
+            if (!isDrawing) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            
+            const currentX = (e.clientX - rect.left) * scaleX;
+            const currentY = (e.clientY - rect.top) * scaleY;
+            
+            // Clear and redraw
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (video.srcObject) {
+                ctx.drawImage(video, 0, 0);
+            }
+            
+            ctx.strokeStyle = '#00ff00';
+            ctx.lineWidth = 3;
+            ctx.setLineDash([5, 5]);
+            
+            if (currentTool === 'rectangle') {
+                ctx.strokeRect(startX, startY, currentX - startX, currentY - startY);
+            } else if (currentTool === 'circle') {
+                const radius = Math.hypot(currentX - startX, currentY - startY);
+                ctx.beginPath();
+                ctx.arc(startX, startY, radius, 0, Math.PI * 2);
+                ctx.stroke();
+            } else if (currentTool === 'line') {
+                ctx.beginPath();
+                ctx.moveTo(startX, startY);
+                ctx.lineTo(currentX, currentY);
+                ctx.stroke();
+            }
+            
+            ctx.setLineDash([]);
+        }
+        
+        function handleMouseUp(e) {
+            if (!isDrawing) return;
+            isDrawing = false;
+            
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            
+            const endX = (e.clientX - rect.left) * scaleX;
+            const endY = (e.clientY - rect.top) * scaleY;
+            
+            const normStartX = startX / canvas.width;
+            const normStartY = startY / canvas.height;
+            const normEndX = endX / canvas.width;
+            const normEndY = endY / canvas.height;
+            
+            if (currentTool === 'rectangle') {
+                currentROI = {
+                    type: 'rectangle',
+                    coords: [
+                        Math.min(normStartX, normEndX),
+                        Math.min(normStartY, normEndY),
+                        Math.abs(normEndX - normStartX),
+                        Math.abs(normEndY - normStartY)
+                    ]
+                };
+            } else if (currentTool === 'circle') {
+                const radius = Math.hypot(endX - startX, endY - startY);
+                currentROI = {
+                    type: 'circle',
+                    coords: [normStartX, normStartY, radius / Math.min(canvas.width, canvas.height)]
+                };
+            } else if (currentTool === 'line') {
+                currentROI = {
+                    type: 'line',
+                    coords: [normStartX, normStartY, normEndX, normEndY]
+                };
+            }
+            
+            redrawROI();
+            setStatus(`ROI selected: ${currentTool}`);
+        }
+        
+        function handleDoubleClick(e) {
+            if (currentTool === 'polygon' || currentTool === 'manual') {
+                if (roiPoints.length >= 3) {
+                    const normalizedPoints = roiPoints.map(p => [p.x / canvas.width, p.y / canvas.height]);
+                    currentROI = {
+                        type: currentTool === 'polygon' ? 'polygon' : 'freehand',
+                        coords: normalizedPoints
+                    };
+                    redrawROI();
+                    setStatus(`${currentTool} ROI complete`);
+                }
+            }
+        }
+        
+        function redrawROI() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (video.srcObject) {
+                ctx.drawImage(video, 0, 0);
+            }
+            
+            if (currentROI) {
+                ctx.strokeStyle = '#00ff00';
+                ctx.lineWidth = 3;
+                ctx.fillStyle = 'rgba(0, 255, 0, 0.1)';
+                
+                const coords = currentROI.coords;
+                
+                if (currentROI.type === 'rectangle') {
+                    const x = coords[0] * canvas.width;
+                    const y = coords[1] * canvas.height;
+                    const w = coords[2] * canvas.width;
+                    const h = coords[3] * canvas.height;
+                    ctx.fillRect(x, y, w, h);
+                    ctx.strokeRect(x, y, w, h);
+                } else if (currentROI.type === 'circle') {
+                    const cx = coords[0] * canvas.width;
+                    const cy = coords[1] * canvas.height;
+                    const radius = coords[2] * Math.min(canvas.width, canvas.height);
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                } else if (currentROI.type === 'line') {
+                    const x1 = coords[0] * canvas.width;
+                    const y1 = coords[1] * canvas.height;
+                    const x2 = coords[2] * canvas.width;
+                    const y2 = coords[3] * canvas.height;
+                    ctx.beginPath();
+                    ctx.moveTo(x1, y1);
+                    ctx.lineTo(x2, y2);
+                    ctx.stroke();
+                } else if (currentROI.type === 'polygon' || currentROI.type === 'freehand') {
+                    ctx.beginPath();
+                    coords.forEach((p, i) => {
+                        const px = p[0] * canvas.width;
+                        const py = p[1] * canvas.height;
+                        if (i === 0) ctx.moveTo(px, py);
+                        else ctx.lineTo(px, py);
+                    });
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                }
+            }
+            
+            // Draw polygon in progress
+            if ((currentTool === 'polygon' || currentTool === 'manual') && roiPoints.length > 0) {
+                ctx.strokeStyle = '#ffff00';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                roiPoints.forEach((p, i) => {
+                    if (i === 0) ctx.moveTo(p.x, p.y);
+                    else ctx.lineTo(p.x, p.y);
+                    ctx.fillStyle = '#ffff00';
+                    ctx.fillRect(p.x - 3, p.y - 3, 6, 6);
+                });
+                ctx.stroke();
+            }
+        }
+        
+        function clearROI() {
+            currentROI = null;
+            roiPoints = [];
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (video.srcObject) {
+                ctx.drawImage(video, 0, 0);
+            }
+            setStatus('ROI cleared');
+        }
+        
+        // Capture and analyze
+        async function captureAndAnalyze() {
+            setStatus('Analyzing...', true);
+            
+            const captureCanvas = document.createElement('canvas');
+            captureCanvas.width = canvas.width;
+            captureCanvas.height = canvas.height;
+            const captureCtx = captureCanvas.getContext('2d');
+            
+            if (video.srcObject) {
+                captureCtx.drawImage(video, 0, 0);
+            } else {
+                captureCtx.drawImage(canvas, 0, 0);
+            }
+            
+            const imageData = captureCanvas.toDataURL('image/jpeg', 0.9);
+            const base64Image = imageData.split(',')[1];
+            
+            const colorPicker = document.getElementById('colorPicker').value;
+            const tolerance = parseInt(document.getElementById('tolerance').value);
+            
+            const requestData = {
+                image: base64Image,
+                roi: currentROI,
+                target_color: colorPicker,
+                tolerance: tolerance,
+                detect_qr: document.getElementById('autoQR').checked,
+                detect_ocr: document.getElementById('autoOCR').checked,
+                detect_colors: document.getElementById('autoColor').checked,
+                detect_quality: true,
+                visualize: true
+            };
+            
+            try {
+                const response = await fetch('/api/analyze-complete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestData)
+                });
+                
+                const data = await response.json();
+                latestResults = data.result;
+                
+                // Save to gallery
+                savedInspections.unshift({
+                    id: data.result.inspection_id,
+                    image: imageData,
+                    timestamp: new Date().toLocaleTimeString(),
+                    verdict: data.result.overall_verdict
+                });
+                updateGallery();
+                
+                displayResults(data.result);
+                setStatus('Analysis complete');
+            } catch (error) {
+                setStatus('Error: ' + error.message);
+                console.error('Analysis error:', error);
+            }
+        }
+        
+        // Auto detection
+        function startAutoDetection() {
+            if (autoDetectInterval) {
+                stopAutoDetection();
+                return;
+            }
+            
+            const interval = parseInt(document.getElementById('autoInterval').value) * 1000;
+            autoDetectInterval = setInterval(captureAndAnalyze, interval);
+            document.getElementById('autoStatus').textContent = '🔄 Auto-Detecting...';
+            setStatus('Auto-detection started');
+        }
+        
+        function stopAutoDetection() {
+            if (autoDetectInterval) {
+                clearInterval(autoDetectInterval);
+                autoDetectInterval = null;
+                document.getElementById('autoStatus').textContent = '';
+                setStatus('Auto-detection stopped');
+            }
+        }
+        
+        function displayResults(result) {
+            let html = '';
+            
+            // Quality
+            if (result.quality) {
+                const q = result.quality;
+                html += `<div class="result-item">
+                    <h3>✨ Quality</h3>
+                    <div class="result-data">Blur: ${q.blur.blur_score} | Brightness: ${q.brightness.brightness}</div>
+                </div>`;
+            }
+            
+            // QR Codes
+            if (result.qr_codes && result.qr_codes.length > 0) {
+                html += '<div class="result-item"><h3>🔍 QR/Barcodes</h3>';
+                result.qr_codes.forEach(qr => {
+                    html += `<div class="result-data">${qr.format}: ${qr.data}</div>`;
+                });
+                html += '</div>';
+            }
+            
+            // OCR
+            if (result.ocr_text) {
+                html += `<div class="result-item"><h3>📝 OCR</h3><div class="result-data">${result.ocr_text}</div></div>`;
+            }
+            
+            // Color
+            if (result.colors) {
+                html += '<div class="result-item"><h3>🎨 Color Analysis</h3>';
+                if (result.colors.boxes) {
+                    result.colors.boxes.forEach(box => {
+                        html += `<div class="result-data">Box ${box.position}: C1=${box.c1_percentage}% | ${box.verdict}</div>`;
+                    });
+                }
+                if (result.colors.roi) {
+                    const roi = result.colors.roi;
+                    html += `<div class="result-data">ROI: ${roi.summary?.dominant_color || 'Detected'}</div>`;
+                }
+                html += '</div>';
+            }
+            
+            // Verdict
+            html += `<div class="result-item" style="border-left: 4px solid ${result.overall_verdict === 'OK' ? '#00c851' : '#ff4444'}">
+                <h3>🎯 ${result.overall_verdict}</h3>
+                <div class="result-data">ID: #${result.inspection_id} | Time: ${result.processing_time}s</div>
+            </div>`;
+            
+            // Visualization
+            if (result.visualization) {
+                html += `<div class="result-item">
+                    <img src="data:image/jpeg;base64,${result.visualization}" style="width:100%; border-radius:8px;">
+                </div>`;
+            }
+            
+            document.getElementById('resultsPanel').innerHTML = html || '<p style="opacity:0.5;">No results</p>';
+        }
+        
+        function updateGallery() {
+            const gallery = document.getElementById('gallery');
+            gallery.innerHTML = savedInspections.map((insp, i) => `
+                <div style="position: relative; cursor: pointer;" onclick="viewInspection(${i})">
+                    <img src="${insp.image}" style="width: 150px; height: 100px; object-fit: cover; border-radius: 8px;">
+                    <div style="position: absolute; bottom: 5px; right: 5px; background: ${insp.verdict === 'OK' ? 'green' : 'red'}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px;">
+                        ${insp.verdict}
+                    </div>
+                    <div style="position: absolute; top: 5px; left: 5px; background: rgba(0,0,0,0.7); color: white; padding: 2px 6px; border-radius: 4px; font-size: 10px;">
+                        #${insp.id}
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function viewInspection(index) {
+            window.open(`/inspection/${savedInspections[index].id}`, '_blank');
+        }
+        
+        function clearGallery() {
+            if (confirm('Clear all saved inspections?')) {
+                savedInspections = [];
+                updateGallery();
+            }
+        }
+        
+        function exportResults() {
+            if (!latestResults) {
+                alert('No results to export');
+                return;
+            }
+            const blob = new Blob([JSON.stringify(latestResults, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `inspection_${Date.now()}.json`;
+            a.click();
+        }
+        
+        function setStatus(message, isScanning = false) {
+            const statusEl = document.getElementById('statusText');
+            statusEl.textContent = message;
+            if (isScanning) {
+                statusEl.classList.add('scanning');
+            } else {
+                statusEl.classList.remove('scanning');
+            }
+        }
+        
+        function startFPSCounter() {
+            setInterval(() => {
+                document.getElementById('fpsCounter').textContent = `FPS: ${frameCount}`;
+                frameCount = 0;
+            }, 1000);
+            
+            function countFrame() {
+                frameCount++;
+                requestAnimationFrame(countFrame);
+            }
+            countFrame();
+        }
+        
+        // Stop auto-detection on page unload
+        window.addEventListener('beforeunload', stopAutoDetection);
+    </script>
+</body>
+</html>
